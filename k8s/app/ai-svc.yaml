@@ -1,0 +1,86 @@
+# Deployment: ai-svc 推理业务服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-svc
+  namespace: app
+  labels:
+    app: ai-svc
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-svc
+  template:
+    metadata:
+      labels:
+        app: ai-svc
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: ai-svc
+          image: reix.harbor.cn/k8s-ai/ai-svc:v2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: USE_MOCK
+              value: "True"
+            - name: MODEL_ENDPOINT
+              value: "http://vllm-svc:8001/v1/completions"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-svc
+  namespace: app
+spec:
+  selector:
+    app: ai-svc
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+---
+# Prometheus 抓取注解（用 prometheus-operator 时生效）
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-svc-metrics
+  namespace: app
+  # ServiceMonitor 通过此 label 选中该 Service（必须与 ServiceMonitor.spec.selector 匹配）
+  labels:
+    app: ai-svc
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  selector:
+    app: ai-svc
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: metrics

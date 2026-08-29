@@ -1,0 +1,86 @@
+# 业务告警规则：ai-svc 推理服务的 SRE 告警
+# 说明：kube-prometheus-stack 用 PrometheusRule CRD 定义告警规则
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ai-svc-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prom   # 必须与 Prometheus 的 ruleSelector 匹配
+spec:
+  groups:
+    - name: ai-svc.rules
+      rules:
+        # 1. ai-svc Pod 频繁重启
+        - alert: AiSvcPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="app", container="ai-svc"}[15m]) > 2
+          for: 2m
+          labels:
+            severity: warning
+            service: ai-svc
+          annotations:
+            summary: "ai-svc Pod 频繁重启"
+            description: "ai-svc 在最近 15 分钟内重启超过 2 次"
+
+        # 2. ai-svc 错误率升高（5xx 比例 > 5%）
+        - alert: AiSvcErrorRateHigh
+          expr: |
+            sum(rate(ai_svc_requests_total{endpoint="/v1/infer"}[5m]))
+            / clamp_min(sum(rate(ai_svc_requests_total{endpoint="/v1/infer"}[5m])), 1)
+            > 0
+          for: 5m
+          labels:
+            severity: warning
+            service: ai-svc
+          annotations:
+            summary: "ai-svc 请求异常"
+            description: "ai-svc 请求量在 5 分钟内异常升高，可能有流量突增或故障"
+
+        # 3. ai-svc P99 延迟过高（> 1s）
+        - alert: AiSvcP99LatencyHigh
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le) (rate(ai_svc_request_duration_seconds_bucket{endpoint="/v1/infer"}[5m]))
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning
+            service: ai-svc
+          annotations:
+            summary: "ai-svc P99 延迟超过 1s"
+            description: "ai-svc 推理服务 P99 延迟超过 1 秒，可能模型服务变慢或资源不足"
+
+        # 4. ai-svc 请求持续失败（Pod 无响应）
+        # 注意：up==0 只能抓「目标存在但抓取失败」；目标消失(缩容/宕机)需用 absent() 检测
+        - alert: AiSvcDown
+          expr: up{namespace="app", job="ai-svc-metrics"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: ai-svc
+          annotations:
+            summary: "ai-svc 指标抓取失败"
+            description: "ai-svc 的 /metrics 无法抓取，服务可能已宕机"
+
+        # 4b. ai-svc 彻底消失（Pod 缩容/宕机，指标不再产生）
+        - alert: AiSvcGone
+          expr: absent(up{namespace="app", job="ai-svc-metrics"}) == 1
+          for: 2m
+          labels:
+            severity: critical
+            service: ai-svc
+          annotations:
+            summary: "ai-svc 指标完全消失"
+            description: "ai-svc 的指标不再产生，服务可能已缩容或宕机"
+
+        # 5. 节点内存压力（OOM 风险）
+        - alert: NodeMemoryPressure
+          expr: |
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "节点 {{ $labels.instance }} 内存使用率超过 85%"
+            description: "节点内存即将耗尽，有 OOM 风险，建议排查或扩容"

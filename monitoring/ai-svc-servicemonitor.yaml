@@ -1,0 +1,20 @@
+# ServiceMonitor: 让 Prometheus(operator) 采集 ai-svc 指标
+# 说明: kube-prometheus-stack 用 ServiceMonitor CRD 发现抓取目标
+# 前提: ai-svc-metrics Service 的端口需要 name: metrics（已在 ai-svc.yaml 中配置）
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ai-svc
+  namespace: monitoring
+  labels:
+    release: kube-prom   # 必须与 kube-prometheus-stack 的 release 标签一致
+spec:
+  namespaceSelector:
+    matchNames: ["app"]
+  selector:
+    matchLabels:
+      app: ai-svc
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

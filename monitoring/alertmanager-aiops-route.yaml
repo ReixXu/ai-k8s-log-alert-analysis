@@ -1,0 +1,25 @@
+# Alertmanager 路由：告警 → AIOps webhook（智能分析入口）
+# 说明：kube-prometheus-stack 用 AlertmanagerConfig CRD（需在 Alertmanager 启用 selector）
+# 作用：把 ai-svc 相关告警转发给 AIOps 助手 /api/alert 做智能根因分析
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: aiops-route
+  namespace: monitoring
+  labels:
+    release: kube-prom
+spec:
+  route:
+    groupBy: ["alertname", "namespace"]
+    groupWait: 10s
+    groupInterval: 30s
+    repeatInterval: 2h
+    receiver: "aiops-webhook"        # 根路由默认接收器（必填）
+    matchers:
+      - name: severity
+        value: "critical"            # 所有 critical 告警 → AIOps 智能分析
+  receivers:
+    - name: "aiops-webhook"
+      webhookConfigs:
+        - url: "http://aiops-assistant.aiops/api/alert"
+          sendResolved: true

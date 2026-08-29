@@ -1,0 +1,25 @@
+# MetalLB 配置（适配 192.168.243.0/24 网段）
+# 来源：课堂代码 6/metallb-IPAddressPool.yaml + 8.metallb-l2advice.yaml，适配本项目网段
+
+# IP 地址池：从内网段划一段给 LoadBalancer Service
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: cheap
+  namespace: metallb-system
+spec:
+  addresses:
+    - 192.168.243.200-192.168.243.220
+---
+# L2 通告：通过 ARP 广播宣告这些 IP
+# 接口限定为 ens160（节点主网卡），避免在 docker0/calico 虚拟接口上通告
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: example-advertisement9
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - cheap
+  interfaces:
+    - ens160

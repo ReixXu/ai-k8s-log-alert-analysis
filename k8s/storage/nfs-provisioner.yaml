@@ -1,0 +1,168 @@
+# ============================================================
+# NFS 存储方案落地清单（适配你的环境）
+# 来源：7.Kubernetes存储.pdf 7.9.4 节 nfs-client-provisioner 方案
+# 适配：NFS服务器=192.168.243.120 (Harbor机) | 镜像=reix.harbor.cn
+# 分四步：A.NFS服务端 B.集群装客户端 C.部署provisioner D.设为默认SC
+# ============================================================
+
+# ------------------------------------------------------------
+# 第一步：在 192.168.243.120 (Harbor机) 上部署 NFS 服务端
+# ------------------------------------------------------------
+# 1) 安装 nfs-utils 并启动
+#    dnf install -y nfs-utils
+#    systemctl enable --now nfs-server rpcbind
+#
+# 2) 创建共享目录并授权
+#    mkdir -p /nfsdata/ai-cloud-native-ops
+#    chown -R nobody /nfsdata/ai-cloud-native-ops/
+#    chmod -R 777 /nfsdata/ai-cloud-native-ops/
+#
+# 3) 写入 exports
+#    cat >> /etc/exports <<'EOF'
+#    /nfsdata/ai-cloud-native-ops *(rw,no_root_squash,no_all_squash,sync)
+#    EOF
+#    exportfs -arv
+#    systemctl restart nfs-server
+#
+# 4) 验证（应显示 /nfsdata/ai-cloud-native-ops *）
+#    showmount -e 127.0.0.1
+#
+# 5) 防火墙放行（如有 firewall）
+#    firewall-cmd --permanent --add-service=nfs
+#    firewall-cmd --permanent --add-service=mountd
+#    firewall-cmd --permanent --add-service=rpc-bind
+#    firewall-cmd --reload
+
+# ------------------------------------------------------------
+# 第二步：三台 k8s 节点安装 nfs 客户端（k8s-master/node1/node2）
+# ------------------------------------------------------------
+#    dnf install -y nfs-utils
+#    systemctl enable --now rpcbind
+# 验证：showmount -e 192.168.243.120 应看到 /nfsdata/share
+
+# ------------------------------------------------------------
+# 第三步：以下 YAML 保存为 nfs-provisioner.yaml，kubectl apply -f
+# ------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nfs-storageclass
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-client-provisioner
+  namespace: nfs-storageclass
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nfs-client-provisioner-runner
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: run-nfs-client-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: nfs-storageclass
+roleRef:
+  kind: ClusterRole
+  name: nfs-client-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: leader-locking-nfs-client-provisioner
+  namespace: nfs-storageclass
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: leader-locking-nfs-client-provisioner
+  namespace: nfs-storageclass
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: nfs-storageclass
+roleRef:
+  kind: Role
+  name: leader-locking-nfs-client-provisioner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-client-provisioner
+  namespace: nfs-storageclass
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nfs-client-provisioner
+  template:
+    metadata:
+      labels:
+        app: nfs-client-provisioner
+    spec:
+      serviceAccountName: nfs-client-provisioner
+      # 从 Harbor 私有仓库拉镜像需引用 imagePullSecret
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: nfs-client-provisioner
+          # 适配：换成你 Harbor 里的镜像地址（实际在 /k8s/ 项目下）
+          image: reix.harbor.cn/k8s/nfs-subdir-external-provisioner:v4.0.2
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: k8s-sigs.io/nfs-subdir-external-provisioner
+            - name: NFS_SERVER
+              value: 192.168.243.120
+            - name: NFS_PATH
+              value: /nfsdata/ai-cloud-native-ops
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: 192.168.243.120
+            path: /nfsdata/ai-cloud-native-ops
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-client
+  # 适配：设为默认 StorageClass，PVC 不写 storageClassName 也能用
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: k8s-sigs.io/nfs-subdir-external-provisioner
+parameters:
+  pathPattern: ${.PVC.namespace}/${.PVC.name}
+  onDelete: delete
+volumeBindingMode: Immediate
+reclaimPolicy: Delete

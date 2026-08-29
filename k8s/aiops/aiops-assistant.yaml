@@ -1,0 +1,149 @@
+# AIOps 助手部署（Deployment + Service + ServiceAccount + RBAC）
+# 功能: 接收 Alertmanager webhook → 收集集群上下文(指标/日志/事件) → LLM 根因分析
+# 依赖: aiops-secrets Secret (LLM API Key), 已由用户创建
+
+---
+# ServiceAccount: 让 assistant 能用 kubectl 查集群状态
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aiops-assistant
+  namespace: aiops
+---
+# RBAC: 只读权限（查 Pod/事件/部署等，最小权限原则）
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aiops-assistant-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "services", "nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aiops-assistant-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aiops-assistant-reader
+subjects:
+  - kind: ServiceAccount
+    name: aiops-assistant
+    namespace: aiops
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-assistant
+  namespace: aiops
+  labels:
+    app: aiops-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-assistant
+  template:
+    metadata:
+      labels:
+        app: aiops-assistant
+    spec:
+      serviceAccountName: aiops-assistant
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: assistant
+          image: reix.harbor.cn/k8s-ai/aiops-assistant:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-secrets
+                  key: llm_api_key
+            - name: LLM_BASE_URL
+              value: "https://api.deepseek.com"
+            - name: LLM_MODEL
+              value: "deepseek-v4-flash"
+            - name: LOKI_URL
+              value: "http://loki.monitoring:3100"
+            - name: PROM_URL
+              value: "http://kube-prom-kube-prometheus-prometheus.monitoring:9090"
+            # === 通知渠道（从 Secret 注入，未配置自动跳过）===
+            - name: DINGTALK_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-notify
+                  key: dingtalk_webhook
+            - name: WECOM_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-notify
+                  key: wecom_webhook
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-notify
+                  key: smtp_host
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-notify
+                  key: smtp_port
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-notify
+                  key: smtp_user
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-notify
+                  key: smtp_pass
+            - name: MAIL_TO
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-notify
+                  key: mail_to
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-assistant
+  namespace: aiops
+spec:
+  selector:
+    app: aiops-assistant
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+---
+# Secret 由外部提供（勿提交真实 key 到 git）：kubectl create secret generic aiops-secrets -n aiops --from-literal=llm_api_key=XXX

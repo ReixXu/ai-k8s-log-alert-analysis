@@ -1,0 +1,15 @@
+# LoadBalancer 方式暴露 ai-svc（首选，配合 MetalLB）
+# 说明：外部访问 http://192.168.243.201（IP 池分配）直达 ai-svc
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-svc-lb
+  namespace: app
+spec:
+  type: LoadBalancer
+  selector:
+    app: ai-svc
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http

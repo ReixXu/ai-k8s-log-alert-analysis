@@ -1,0 +1,23 @@
+# ArgoCD 应用 — GitOps 部署入口
+# 让集群从 git 仓库的 k8s/ 目录自动同步业务与可观测清单。
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-ops-platform
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_USER/ai-cloud-native-ops.git
+    targetRevision: HEAD
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

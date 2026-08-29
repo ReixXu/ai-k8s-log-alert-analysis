@@ -1,0 +1,22 @@
+# Ingress: 统一入口暴露 ai-svc（需先部署 Ingress-NGINX controller）
+# 访问方式：本机 hosts 添加 192.168.243.202 ai.ops.local，浏览器访问 http://ai.ops.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-svc-ingress
+  namespace: app
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ai.ops.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-svc
+                port:
+                  number: 80

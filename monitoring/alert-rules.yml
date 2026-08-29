@@ -1,0 +1,56 @@
+# Alerting Rules — 关键告警规则
+groups:
+  - name: cluster-alerts
+    rules:
+      # 节点 CPU 使用率过高
+      - alert: NodeHighCPU
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "节点 {{ $labels.instance }} CPU 使用率过高"
+          description: "CPU > 85% 持续 5 分钟"
+
+      # 节点不可用
+      - alert: NodeDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "节点 {{ $labels.instance }} 不可用"
+
+      # Pod 频繁重启
+      - alert: PodRestarting
+        expr: rate(kube_pod_container_status_restarts_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} 频繁重启"
+          description: "重启速率 > 1 次/5min"
+
+  - name: app-alerts
+    rules:
+      # ai-svc 错误率升高
+      - alert: AiSvcErrorRate
+        expr: |
+          sum(rate(ai_svc_requests_total[5m])) > 0
+          and
+          sum(rate(ai_svc_requests_total[5m])) * 0.05
+          < sum(rate(ai_svc_requests_total[5m]))  # 占位，实际用失败计数
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ai-svc 请求异常增多"
+
+      # ai-svc P99 延迟升高
+      - alert: AiSvcLatencyHigh
+        expr: histogram_quantile(0.99, sum by(le) (rate(ai_svc_request_duration_seconds_bucket[5m]))) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ai-svc P99 延迟超 1s"

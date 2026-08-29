@@ -1,0 +1,29 @@
+# GitHub Actions — ai-svc 服务 CI 流水线
+# 触发: 推送到 main 时。构建镜像 + 推送 registry，再触发部署。
+name: ai-svc-cicd
+
+on:
+  push:
+    paths: ["apps/ai-svc/**"]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  IMAGE: registry.local/ai-ops/ai-svc   # 用你的私有 registry 地址
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 语法检查
+        run: python -m py_compile apps/ai-svc/main.py
+
+      - name: 构建并推送镜像
+        run: |
+          docker build -t $IMAGE:latest apps/ai-svc
+          docker push $IMAGE:latest
+
+  # 到集群的部署走 GitOps (ArgoCD 从 git 拉取 k8s/ 清单)，此处仅触发说明
+  # 真实环境: 更新 k8s/app/ai-svc.yaml 的 image tag 并提交 → ArgoCD 自动同步

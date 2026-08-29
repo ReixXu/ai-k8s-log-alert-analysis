@@ -1,0 +1,24 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 环境变量/密钥（勿提交）
+.env
+*.env
+!*.env.example
+*.pem
+*.key
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 临时
+*.log
+/tmp/

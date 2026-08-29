@@ -1,0 +1,47 @@
+# mock-vllm 部署（模拟模型推理服务）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-svc
+  namespace: app
+  labels:
+    app: vllm-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-svc
+  template:
+    metadata:
+      labels:
+        app: vllm-svc
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: vllm
+          image: reix.harbor.cn/k8s-ai/mock-vllm:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+              name: http
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-svc
+  namespace: app
+spec:
+  selector:
+    app: vllm-svc
+  ports:
+    - port: 8001
+      targetPort: 8001
+      name: http
