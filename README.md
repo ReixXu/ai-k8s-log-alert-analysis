@@ -1,5 +1,5 @@
-# AI-Driven Cloud-Native Operations Platform
-# 面向 AI 应用的云原生智能运维平台
+# AI 智能分析 K8s 集群服务日志和告警
+# AI-Powered Log & Alert Analysis for K8s Services
 
 > 一个把「云原生运维」与「AI」融合的端到端企业级项目。
 > 基于已有 3 节点 Kubernetes 集群 + Harbor 私有仓库，从零部署完整的
@@ -21,7 +21,32 @@
 
 ---
 
-## ✅ 三、实施进度追踪（每完成一步同步更新）
+## 📊 三、可观测平台
+
+项目内置完整的可观测体系（可观测性三支柱），既是人工查看的监控平台，也是 AIOps 助手的数据来源：
+
+| 支柱 | 组件 | 访问方式 | 状态 |
+|------|------|---------|------|
+| **指标 Metrics** | Prometheus（kube-prometheus-stack） | ClusterIP:9090 | ✅ 采集节点/容器/Pod/业务指标 |
+| **可视化** | Grafana | `http://192.168.243.202`（LoadBalancer） | ✅ 看板可访问 |
+| **日志 Logs** | Loki + Promtail（DaemonSet×3） | ClusterIP:3100 | ✅ `{namespace="app"}` 日志可查 |
+| **告警 Alerts** | Alertmanager + PrometheusRule | ClusterIP:9093 | ✅ 6 条规则 + 路由到 AIOps |
+
+**关键数据流**：
+```
+业务 Pod 指标/日志
+   │
+   ▼
+Prometheus（指标）← ServiceMonitor ← ai-svc /metrics
+Loki（日志）← Promtail ← /var/log/pods/*
+   │
+   ▼
+告警规则触发 → Alertmanager → AIOps 助手（AI 分析）
+```
+
+---
+
+## ✅ 四、实施进度追踪（每完成一步同步更新）
 
 > 当前进度：**可观测层进行中** —— kube-prometheus-stack 已部署，业务指标采集已打通，下一步部署 Loki 日志 + 告警规则。
 
@@ -76,7 +101,7 @@
 
 ---
 
-## 🖥️ 四、当前环境
+## 🖥️ 五、当前环境
 
 | 角色 | 主机 | IP | OS | 规格 | 用途 |
 |------|------|-----|-----|------|------|
@@ -89,7 +114,7 @@
 
 ---
 
-## 🏗️ 五、架构图
+## 🏗️ 六、架构图
 
 ```
                         ┌──────────────────────────────┐
@@ -118,7 +143,7 @@
 
 ---
 
-## 🛠️ 六、技术栈
+## 🛠️ 七、技术栈
 
 | 领域 | 技术 |
 |------|------|
@@ -132,7 +157,7 @@
 
 ---
 
-## 📂 七、仓库结构
+## 📂 八、仓库结构
 
 ```
 ai-cloud-native-ops/
@@ -148,7 +173,7 @@ ai-cloud-native-ops/
 
 ---
 
-## 🚀 八、文档索引
+## 🚀 九、文档索引
 
 | 主题 | 文档 |
 |------|------|
