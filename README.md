@@ -53,25 +53,26 @@
 | **收尾** | 文档完善、架构图 | 🔄 进行中 |
 
 **变更日志（按时间）**
-- `2026-xx-xx`：环境确认（3 节点 Ready + Harbor 登录成功）
-- `2026-xx-xx`：存储方案由 local-path 改为 NFS（取自《7.Kubernetes存储.pdf》的 nfs-subdir-external-provisioner 方案，更企业级，支持 RWX）
-- `2026-xx-xx`：确认 Harbor 镜像 `reix.harbor.cn/k8s/nfs-subdir-external-provisioner:v4.0.2` 可拉取
-- `2026-xx-xx`：完成 NFS 服务端部署（Harbor 机 192.168.243.120，共享目录 `/nfsdata/ai-cloud-native-ops`）
-- `2026-xx-xx`：部署 nfs-client-provisioner 成功（Pod Running，StorageClass `nfs-client` 设为默认）
-- `2026-xx-xx`：动态供给验收通过：测试 PVC 自动 Bound、PV 自动创建、Pod 写入 NFS 成功
-- `2026-xx-xx`：落盘验证通过：Harbor 机 `/nfsdata/ai-cloud-native-ops/default/test-nfs-claim/test.txt` 内容正确，数据穿透 K8s→NFS→宿主机磁盘全链路打通
-- `2026-xx-xx`：部署 MetalLB v0.16.1 成功（controller + speaker×3 Running），IP 池 `192.168.243.200-220`，L2 通告 ens160；LoadBalancer 验证通过：test-lb-svc 拿到 `192.168.243.200` 并成功访问 nginx 页
-- `2026-xx-xx`：部署 Ingress-NGINX v1.15.1 成功（镜像走 Harbor），controller Running，LoadBalancer 拿到 `192.168.243.201`
-- `2026-xx-xx`：Ingress 端到端验证通过：`curl -H "Host: test.ops.local" http://192.168.243.201/` 返回 nginx 页，MetalLB→Ingress→Pod 全链路打通
-- `2026-xx-xx`：业务镜像构建并推送成功：`reix.harbor.cn/k8s-ai/ai-svc:latest`、`mock-vllm:latest`（Harbor k8s-ai 私有项目，已配 imagePullSecret）
-- `2026-xx-xx`：业务服务部署成功：ai-svc×2 + vllm-svc Running，LoadBalancer 拿到 `192.168.243.200`，推理 API `/v1/infer` 验证通过（延迟 ~50ms）
-- `2026-xx-xx`：kube-prometheus-stack 部署成功（Helm）：Prometheus/Grafana/Alertmanager/kube-state-metrics/node-exporter 全部 Running，Grafana LoadBalancer 拿到 `192.168.243.202`
-- `2026-xx-xx`：业务指标采集打通：修复 ai-svc `/metrics` JSON 包装 bug（改 Response 纯文本），ServiceMonitor + release 标签 + Service label 三层配置正确后，`ai_svc_requests_total` 成功被 Prometheus 采集
-- `2026-xx-xx`：Loki（裸清单单体 + NFS PVC）部署成功；Promtail 排障完成（根因：容器日志软链指向 `/data/docker/containers` 未挂载，加挂载 + 双 job 配置后日志采集打通，`{namespace="app"}` 查询成功）
-- `2026-xx-xx`：告警规则部署（5+1 条 PrometheusRule），修复「缩容=0 时 up==0 不触发」盲区（新增 `absent()` 检测的 AiSvcGone 规则）；Alertmanager 路由到 AIOps webhook（绕过 CRD namespace 限制，直接改 secret 配置）
-- `2026-xx-xx`：AIOps 助手部署成功（DeepSeek LLM + RAG + ContextCollector），修复 Alertmanager webhook status 字段位置 bug、kubectl 进镜像、模型名大小写等问题
-- `2026-xx-xx`：**完整自动化闭环验证**：ai-svc 缩容 → AiSvcGone 告警 → Alertmanager → AIOps 自动接收（200 OK）
-- `2026-xx-xx`：**多渠道通知打通**：AI 分析结果 + 告警 → 钉钉 / 企业微信 / 邮件三渠道真实送达（errcode:0，用户终端截图确认）
+- `2026-08-26`：环境确认（3 节点 Ready + Harbor 登录成功）
+- `2026-08-26`：存储方案由 local-path 改为 NFS（取自《7.Kubernetes存储.pdf》的 nfs-subdir-external-provisioner 方案，更企业级，支持 RWX）
+- `2026-08-26`：确认 Harbor 镜像 `reix.harbor.cn/k8s/nfs-subdir-external-provisioner:v4.0.2` 可拉取
+- `2026-08-26`：完成 NFS 服务端部署（Harbor 机 192.168.243.120，共享目录 `/nfsdata/ai-cloud-native-ops`）
+- `2026-08-26`：部署 nfs-client-provisioner 成功（Pod Running，StorageClass `nfs-client` 设为默认）
+- `2026-08-26`：动态供给验收通过：测试 PVC 自动 Bound、PV 自动创建、Pod 写入 NFS 成功
+- `2026-08-26`：落盘验证通过：Harbor 机 `/nfsdata/ai-cloud-native-ops/default/test-nfs-claim/test.txt` 内容正确，数据穿透 K8s→NFS→宿主机磁盘全链路打通
+- `2026-08-27`：部署 MetalLB v0.16.1 成功（controller + speaker×3 Running），IP 池 `192.168.243.200-220`，L2 通告 ens160；LoadBalancer 验证通过：test-lb-svc 拿到 `192.168.243.200` 并成功访问 nginx 页
+- `2026-08-27`：部署 Ingress-NGINX v1.15.1 成功（镜像走 Harbor），controller Running，LoadBalancer 拿到 `192.168.243.201`
+- `2026-08-27`：Ingress 端到端验证通过：`curl -H "Host: test.ops.local" http://192.168.243.201/` 返回 nginx 页，MetalLB→Ingress→Pod 全链路打通
+- `2026-08-27`：业务镜像构建并推送成功：`reix.harbor.cn/k8s-ai/ai-svc:latest`、`mock-vllm:latest`（Harbor k8s-ai 私有项目，已配 imagePullSecret）
+- `2026-08-27`：业务服务部署成功：ai-svc×2 + vllm-svc Running，LoadBalancer 拿到 `192.168.243.200`，推理 API `/v1/infer` 验证通过（延迟 ~50ms）
+- `2026-08-27`：kube-prometheus-stack 部署成功（Helm）：Prometheus/Grafana/Alertmanager/kube-state-metrics/node-exporter 全部 Running，Grafana LoadBalancer 拿到 `192.168.243.202`
+- `2026-08-27`：业务指标采集打通：修复 ai-svc `/metrics` JSON 包装 bug（改 Response 纯文本），ServiceMonitor + release 标签 + Service label 三层配置正确后，`ai_svc_requests_total` 成功被 Prometheus 采集
+- `2026-08-27`：Loki（裸清单单体 + NFS PVC）部署成功；Promtail 排障完成（根因：容器日志软链指向 `/data/docker/containers` 未挂载，加挂载 + 双 job 配置后日志采集打通，`{namespace="app"}` 查询成功）
+- `2026-08-28`：告警规则部署（5+1 条 PrometheusRule），修复「缩容=0 时 up==0 不触发」盲区（新增 `absent()` 检测的 AiSvcGone 规则）；Alertmanager 路由到 AIOps webhook（绕过 CRD namespace 限制，直接改 secret 配置）
+- `2026-08-28`：AIOps 助手部署成功（DeepSeek LLM + RAG + ContextCollector），修复 Alertmanager webhook status 字段位置 bug、kubectl 进镜像、模型名大小写等问题
+- `2026-08-28`：**完整自动化闭环验证**：ai-svc 缩容 → AiSvcGone 告警 → Alertmanager → AIOps 自动接收（200 OK）
+- `2026-08-29`：**多渠道通知打通**：AI 分析结果 + 告警 → 钉钉 / 企业微信 / 邮件三渠道真实送达（errcode:0，用户终端截图确认）
+- `2026-08-29`：**故障恢复通知打通**：告警 resolved → 「✅ 告警已恢复」三渠道推送，事件生命周期完整闭环
 
 ---
 
