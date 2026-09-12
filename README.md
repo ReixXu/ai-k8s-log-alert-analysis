@@ -1,7 +1,7 @@
 # AI 智能分析 K8s 集群服务日志和告警
 # AI-Powered Log & Alert Analysis for K8s Services
 
-> 一个把「云原生运维」与「AI」融合的端到端企业级项目。
+> 一个把「云原生运维」与「AI」融合的端到端实操项目。
 > 基于已有 3 节点 Kubernetes 集群 + Harbor 私有仓库，从零部署完整的
 > **AI 推理业务 + 可观测平台 + AIOps 智能运维助手**。
 
