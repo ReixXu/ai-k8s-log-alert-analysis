@@ -75,14 +75,55 @@ class ContextCollector:
 
     # ---------- 汇总 ----------
     def collect_for_alert(self, namespace: str, alert_name: str) -> str:
+        """按告警类型智能选择上下文，支持业务告警与集群级告警。
+
+        - 业务告警（有 namespace）：收集该命名空间的 Pod/事件/部署/日志
+        - 节点类告警（Node*/Disk*/Memory*）：收集节点状态与全集群异常 Pod
+        - 控制平面类告警（etcd/scheduler/controller/apiserver/kubelet/proxy）：
+          收集 kube-system 组件状态与全集群事件
+        """
         parts = []
-        parts.append("## 节点 CPU 使用率\n" + str(self.query_metric(
+        aw = (alert_name or "").lower()
+
+        # 1) 通用：节点资源（所有告警都看）
+        parts.append("## 节点 CPU 使用率(%)\n" + str(self.query_metric(
             '100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)')))
-        parts.append("## 最近事件\n" + self.kubectl(
-            ["get", "events", "-n", namespace, "--sort-by=.lastTimestamp"], 20))
-        parts.append("## Pod 状态\n" + self.kubectl(["get", "pods", "-n", namespace], 25))
-        parts.append("## 部署状态\n" + self.kubectl(["get", "deploy", "-n", namespace], 15))
-        logs = self.fetch_logs(namespace)
-        if logs:
-            parts.append("## 日志片段(最近)\n" + "\n".join(logs[-50:]))
+        parts.append("## 节点内存使用率(%)\n" + str(self.query_metric(
+            '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100')))
+
+        # 2) 按告警类型选择上下文
+        node_kw = ("node", "disk", "memorypressure", "disckpressure", "notready", "kubelet")
+        cp_kw = ("etcd", "scheduler", "controller", "apiserver", "proxy", "coredns", "targetdown")
+
+        if any(k in aw for k in node_kw):
+            # 节点类告警：看节点状态 + 全集群异常 Pod
+            parts.append("## 节点状态\n" + self.kubectl(["get", "nodes", "-o", "wide"], 10))
+            parts.append("## 全集群非 Running Pod\n" + self.kubectl(
+                ["get", "pods", "-A", "--field-selector=status.phase!=Running"], 25))
+            parts.append("## 节点相关事件\n" + self.kubectl(
+                ["get", "events", "-A", "--sort-by=.lastTimestamp"], 20))
+        elif any(k in aw for k in cp_kw):
+            # 控制平面类告警：看 kube-system 组件
+            parts.append("## kube-system 组件状态\n" + self.kubectl(
+                ["get", "pods", "-n", "kube-system", "-o", "wide"], 30))
+            parts.append("## 全集群事件\n" + self.kubectl(
+                ["get", "events", "-A", "--sort-by=.lastTimestamp"], 20))
+            parts.append("## 服务端点(Endpoints)\n" + self.kubectl(["get", "endpoints", "-A"], 20))
+        else:
+            # 业务类告警（默认）：按命名空间收集
+            parts.append("## 最近事件\n" + self.kubectl(
+                ["get", "events", "-n", namespace, "--sort-by=.lastTimestamp"], 20))
+            parts.append("## Pod 状态\n" + self.kubectl(["get", "pods", "-n", namespace, "-o", "wide"], 25))
+            parts.append("## 部署状态\n" + self.kubectl(["get", "deploy", "-n", namespace], 15))
+            parts.append("## 该命名空间非 Running Pod\n" + self.kubectl(
+                ["get", "pods", "-n", namespace, "--field-selector=status.phase!=Running"], 15))
+            logs = self.fetch_logs(namespace)
+            if logs:
+                parts.append("## 日志片段(最近)\n" + "\n".join(logs[-50:]))
+
+        # 3) 兜底：全集群异常 Pod 概况（帮助 AI 发现关联影响）
+        if not any(k in aw for k in node_kw):
+            parts.append("## 全集群异常 Pod 概况\n" + self.kubectl(
+                ["get", "pods", "-A", "--field-selector=status.phase!=Running"], 15))
+
         return "\n\n".join(parts)

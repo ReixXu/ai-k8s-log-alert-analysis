@@ -74,21 +74,32 @@ async def on_alert(payload: AlertPayload, request: Request):
         return {"uid": uid, "action": "no-alerts"}
 
     alert = alerts[0]
-    alert_name = (alert.get("labels") or {}).get("alertname", "unknown")
-    namespace = (alert.get("labels") or {}).get("namespace", "app")
+    labels = alert.get("labels") or {}
+    alert_name = labels.get("alertname", "unknown")
+    # 告警可能没有 namespace 标签（集群级/节点级告警），此时用空值让 AI 知道是集群范围
+    namespace = labels.get("namespace", "cluster-wide")
     annotations = alert.get("annotations") or {}
     summary = annotations.get("summary", alert_name)
+    severity = labels.get("severity", "unknown")
 
-    # 1) 收集上下文（指标 + 日志 + 集群状态）
+    # 1) 收集上下文（指标 + 日志 + 集群状态，按告警类型自动选择）
     snapshot = ctx.collect_for_alert(namespace=namespace, alert_name=alert_name)
-    # 2) 组装 prompt
-    user_prompt = f"""请作为资深 SRE 分析这个告警。
-告警: {summary}
-命名空间: {namespace}
-集群上下文快照:
+    # 2) 组装 prompt（同时兼容业务告警与集群级/节点级告警）
+    scope_hint = (
+        "该告警为集群级/节点级告警（无特定命名空间），请结合节点状态、控制平面组件与全集群异常 Pod 分析。"
+        if namespace == "cluster-wide"
+        else f"该告警属于命名空间 {namespace} 的业务服务。"
+    )
+    user_prompt = f"""请作为资深 SRE 分析这个 K8s 告警。
+告警名: {alert_name}
+告警摘要: {summary}
+严重级别: {severity}
+作用范围: {scope_hint}
+
+集群上下文快照（已按告警类型自动采集）:
 {snapshot[:4000]}
 
-请给出: 1)最可能的根因 2)处置步骤 3)如何验证恢复。回答要具体、可执行、控制在300字内。"""
+请给出: 1)最可能的根因（说明判断在基础设施层/容器编排层/应用层） 2)处置步骤（含具体 kubectl 命令） 3)如何验证恢复。回答要具体、可执行、控制在300字内。"""
     diagnosis = llm.ask(user_prompt)
 
     # 3) 打印完整分析结果到日志（kubectl logs 可查看，方便人工/演示）

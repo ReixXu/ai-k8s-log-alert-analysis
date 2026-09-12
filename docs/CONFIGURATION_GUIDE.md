@@ -175,6 +175,47 @@ kubectl rollout status deployment/aiops-assistant -n aiops
 # 同步更新 aiops-secrets 的 llm_api_key 为 OpenAI Key
 ```
 
+### 3.5 调整 max_tokens（推理模型必看）
+
+`deepseek-v4-flash` 等**推理类模型**会先生成思考过程（`reasoning_content`），再输出最终答案（`content`），**两者都计入 `completion_tokens`**。如果 `max_tokens` 太小，思考过程就会耗尽配额，导致 `content` 为空——表现为"AI 返回空内容"。
+
+本项目默认 `max_tokens` 为 4000（可通过环境变量调整）：
+
+```bash
+# 调整 max_tokens（无需重建镜像）
+kubectl set env deployment/aiops-assistant -n aiops LLM_MAX_TOKENS=6000
+kubectl rollout status deployment/aiops-assistant -n aiops
+```
+
+**诊断方法**（查看每次调用的 finish_reason / 思考长度 / token 用量）：
+
+```bash
+kubectl logs -n aiops deploy/aiops-assistant --tail=20 | grep "\[llm\]"
+# 输出示例：{"finish_reason": "stop", "content_len": 128, "reasoning_len": 860, "usage": ...}
+```
+
+**在容器内直接验证模型行为**：
+
+```bash
+kubectl exec -n aiops deploy/aiops-assistant -- python3 -c "
+import os
+from openai import OpenAI
+c = OpenAI(api_key=os.getenv('LLM_API_KEY'), base_url=os.getenv('LLM_BASE_URL'))
+r = c.chat.completions.create(model=os.getenv('LLM_MODEL'),
+    messages=[{'role':'user','content':'用一句话说明 etcd 成员不足的常见原因'}], max_tokens=500)
+m = r.choices[0].message
+print('finish_reason:', r.choices[0].finish_reason)
+print('content:', repr(m.content))
+print('reasoning_content:', repr(getattr(m, 'reasoning_content', None)))
+print('usage:', r.usage)
+"
+```
+
+代码侧的兼容处理（`app/llm.py`）：
+- `content` 为空但 `reasoning_content` 有内容时，回退返回思考内容并标注截断提示
+- 每次调用打印诊断信息（finish_reason / content 长度 / reasoning 长度 / usage）
+- 空内容时报错信息中包含 finish_reason 与 max_tokens 当前值，便于定位
+
 ---
 
 ## 四、其他常用配置

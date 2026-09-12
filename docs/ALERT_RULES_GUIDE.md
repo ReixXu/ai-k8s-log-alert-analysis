@@ -169,10 +169,122 @@ Prometheus 评估规则(PrometheusRule CRD)
    │ 条件满足 + for 持续
    ▼
 Alertmanager（路由/分组/去重/抑制）
-   │ 匹配 severity=critical
+   │ 匹配 severity=critical（或按需放宽到 warning）
    ▼
 AIOps 助手（LLM 分析 + 集群上下文）
    │
    ├→ 钉钉 / 企业微信 / 邮件（告警 + AI 分析）
    └→ 恢复时：resolved 通知（✅ 已恢复）
 ```
+
+---
+
+## 七、告警覆盖范围与 AI 分析路由
+
+### 7.1 哪些告警会走 AI 分析
+
+决定权在 **Alertmanager 的 route matcher**（当前为 `severity = "critical"`）：
+
+| 告警来源 | 示例 | severity | 是否走 AI 分析 |
+|---------|------|---------|--------------|
+| 本项目规则 | AiSvcGone / AiSvcDown | critical | ✅ 是 |
+| 集群组件规则 | etcdInsufficientMembers / TargetDown | critical | ✅ 是 |
+| 工作负载规则 | KubePodCrashLooping / KubePodNotReady | **warning** | ❌ 否（受路由限制）|
+| 资源配额规则 | KubeQuotaExceeded / CPUThrottlingHigh | warning/info | ❌ 否 |
+| 节点规则 | NodeDown / NodeMemoryPressure | critical/warning | 视级别而定 |
+
+### 7.2 kube-prometheus-stack 自带的工作负载规则（跨命名空间）
+
+这些规则基于 kube-state-metrics，**作用于所有命名空间**，开箱即用（无需自己编写）：
+
+```
+KubePodCrashLooping              Pod 崩溃重启循环
+KubePodNotReady                  Pod 长时间未就绪
+KubeDeploymentReplicasMismatch   Deployment 副本数与期望不符
+KubeDeploymentRolloutStuck       发布卡住
+KubeStatefulSetReplicasMismatch  StatefulSet 副本异常
+KubeDaemonSetRolloutStuck        DaemonSet 发布卡住
+KubeDaemonSetNotScheduled        DaemonSet 未调度
+KubeContainerWaiting             容器长时间 Waiting
+KubeJobFailed / KubeJobNotCompleted  Job 失败/超时
+KubeHpaReplicasMismatch          HPA 副本异常
+KubeHpaMaxedOut                  HPA 已达上限
+KubePdbNotEnoughHealthyPods      PDB 健康 Pod 不足
+KubeCPUOvercommit / KubeMemoryOvercommit  资源超卖
+KubeQuotaExceeded / KubeQuotaAlmostFull   配额超限/接近上限
+CPUThrottlingHigh                CPU 被限流
+```
+
+查询当前集群实际加载的规则：
+```bash
+# 列出所有规则组及数量
+curl -s http://<PROM_IP>:9090/api/v1/rules | jq -r '.data.groups[] | "\(.name) (\(.rules|length) rules)"'
+
+# 查看工作负载类规则及其级别
+curl -s http://<PROM_IP>:9090/api/v1/rules | jq -r '.data.groups[] | select(.name|test("kubernetes-apps|kubernetes-resources")) | .rules[] | "\(.name) [\(.labels.severity)]"'
+```
+
+### 7.3 让 warning 级告警也走 AI 分析（分级路由）
+
+若希望所有命名空间的资源异常都由 AI 分析，将 Alertmanager 路由改为分级策略（critical 快速分析 + warning 聚合分析，避免告警风暴刷爆 LLM）：
+
+编辑 Alertmanager 的 Secret（`alertmanager-kube-prom-kube-prometheus-alertmanager`）中 `alertmanager.yaml`：
+
+```yaml
+route:
+  receiver: "null"
+  group_by: [namespace]
+  routes:
+    # critical：立即分析（快速响应）
+    - receiver: aiops-webhook
+      matchers:
+        - severity = "critical"
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 2h
+      continue: true
+    # warning：聚合 5 分钟后分析（控制调用量）
+    - receiver: aiops-webhook
+      matchers:
+        - severity = "warning"
+      group_wait: 5m
+      group_interval: 10m
+      repeat_interval: 6h
+      continue: true
+    - receiver: "null"
+      matchers:
+        - alertname = "Watchdog"
+
+receivers:
+  - name: "null"
+  - name: aiops-webhook
+    webhook_configs:
+      - send_resolved: true
+        url: http://aiops-assistant.aiops/api/alert
+```
+
+应用方式：
+```bash
+kubectl get secret alertmanager-kube-prom-kube-prometheus-alertmanager -n monitoring \
+  -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d > /tmp/am.yaml
+vi /tmp/am.yaml
+kubectl create secret generic alertmanager-kube-prom-kube-prometheus-alertmanager -n monitoring \
+  --from-file=alertmanager.yaml=/tmp/am.yaml --dry-run=client -o yaml | kubectl apply -f -
+kubectl delete pod -n monitoring alertmanager-kube-prom-kube-prometheus-alertmanager-0
+```
+
+> ⚠️ 权衡：warning 全量接入会增加 LLM 调用量与延迟。生产可按需只放行关键告警（如 `KubePodCrashLooping|KubePodNotReady|KubeQuotaExceeded`）。
+
+### 7.4 AI 如何适配不同类型的告警
+
+AIOps 助手的 `ContextCollector.collect_for_alert()` 会**按告警类型自动选择上下文**（无需为每条规则单独配置）：
+
+| 告警类型判定 | 采集的上下文 |
+|-------------|-------------|
+| 节点类（Node*/Disk*/Kubelet*）| 节点状态、全集群非 Running Pod、全集群事件 |
+| 控制平面类（etcd/scheduler/apiserver/proxy/TargetDown）| kube-system 组件状态、全集群事件、Endpoints |
+| 业务类（其他，含任何命名空间）| 该命名空间的 Pod/事件/部署/非 Running Pod/日志 |
+| 通用（所有告警）| 节点 CPU 与内存使用率 + 全集群异常 Pod 概况 |
+
+因此**任意命名空间的业务告警**（monitoring / ingress-nginx / kube-system 等）都能被正确分析，namespace 取自告警标签而非写死。
+
