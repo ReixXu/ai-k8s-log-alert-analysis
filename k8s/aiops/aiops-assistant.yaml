@@ -131,6 +131,17 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+          # 存活探针：进程卡死（如 LLM 调用悬挂）时由 kubelet 重启容器。
+          # 说明：后台分析任务由 FastAPI BackgroundTasks 在线程池执行，不会阻塞
+          # 事件循环，因此 /healthz 在分析期间仍可正常响应，不会被误杀。
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
 ---
 # Service
 apiVersion: v1

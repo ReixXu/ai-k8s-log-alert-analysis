@@ -1,4 +1,6 @@
 # Alerting Rules — 关键告警规则
+# ⚠️ 仅作参考（未生效）：当前生效的告警规则是 `ai-svc-alerts.yaml`（PrometheusRule CRD），
+#    本文件为「手搭 Prometheus」路径的示例，不参与运行。
 groups:
   - name: cluster-alerts
     rules:

@@ -121,8 +121,16 @@ curl -s 'http://10.1.171.25:9090/api/v1/alerts' | jq '.data.alerts[] | select(.l
 ### 业务级（ai-svc 自曝）
 | 指标 | 含义 |
 |------|------|
-| `ai_svc_requests_total{endpoint="/v1/infer"}` | 推理请求计数 |
+| `ai_svc_requests_total{endpoint="/v1/infer", status="200"}` | 推理请求计数（`status` 标签区分 200/5xx，用于计算错误率）|
 | `ai_svc_request_duration_seconds` | 推理延迟（histogram，可算 P99）|
+
+> 计算错误率的正确写法（依赖 `status` 标签）：
+> ```promql
+> sum(rate(ai_svc_requests_total{endpoint="/v1/infer", status=~"5.."}[5m]))
+> / clamp_min(sum(rate(ai_svc_requests_total{endpoint="/v1/infer"}[5m])), 0.001)
+> ```
+> 注意 `clamp_min` 的分母下限要远小于 1（如 0.001）——错误率是 0~1 的比值，
+> 下限取 1 会把比率压平。
 
 ### Prometheus 内置
 | 指标 | 含义 |

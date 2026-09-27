@@ -249,7 +249,7 @@ kubectl logs -n aiops deploy/aiops-assistant --tail=20 | grep -E "resolved|notif
 - [ ] `kubectl get sc` 有 nfs-client (default)
 - [ ] `kubectl get svc -A` 有 .200/.201/.202 三个 LoadBalancer
 - [ ] `curl http://192.168.243.200/v1/infer` 推理成功
-- [ ] Prometheus 查询 `ai_svc_requests_total` 有数据
+- [ ] Prometheus 查询 `ai_svc_requests_total` 有数据（含 `status` 标签）
 - [ ] Loki 查询 `{namespace="app"}` 有日志
 - [ ] `kubectl get pods -n aiops` Running，/healthz ok
 - [ ] 故障注入 → 三渠道收到「告警 + AI 分析」+「✅ 已恢复」

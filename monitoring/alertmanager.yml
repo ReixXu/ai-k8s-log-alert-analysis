@@ -1,4 +1,7 @@
 # Alertmanager 配置 — 告警路由到 AIOps Webhook
+# ⚠️ 仅作参考（未生效）：当前环境的 Alertmanager 配置在
+#    secret `alertmanager-kube-prom-kube-prometheus-alertmanager` 的 alertmanager.yaml 中，
+#    本文件不参与运行（详见 monitoring/DEPLOY.md）
 # 关键：把告警通过 webhook 推给 aiops-assistant (P3 智能分析入口)
 route:
   group_by: ["alertname", "severity"]

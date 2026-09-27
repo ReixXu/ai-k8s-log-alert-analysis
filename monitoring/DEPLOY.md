@@ -1,5 +1,19 @@
 # 本地 kube-prometheus-stack 部署 + 自定义 alert rules 参考
 
+> ⚠️ **本目录文件分为两类，注意区分：**
+>
+> | 类型 | 文件 | 说明 |
+> |------|------|------|
+> | ✅ **实际生效** | `ai-svc-alerts.yaml`（PrometheusRule）<br>`ai-svc-servicemonitor.yaml`（ServiceMonitor）<br>`alertmanager-aiops-route.yaml`（AlertmanagerConfig）| 通过 kubectl apply 生效，集群正在使用 |
+> | 📖 **仅作参考** | `prometheus.yml`、`alertmanager.yml`、`alert-rules.yml`（本文档）| 「手搭 Prometheus」路径的示例配置，**当前环境未使用**——实际由 kube-prometheus-stack（Helm + Operator）托管，抓取目标通过 ServiceMonitor 声明，规则通过 PrometheusRule 声明 |
+>
+> 排查问题时请以集群实际配置为准：
+> ```bash
+> kubectl get prometheusrule,servicemonitor,alertmanagerconfig -n monitoring
+> kubectl get secret prometheus-kube-prom-kube-prometheus-prometheus -n monitoring \
+>   -o jsonpath='{.data.prometheus\.yaml\.gz}' | base64 -d | gunzip | head -40
+> ```
+
 > 目的：快速搭出 Prometheus/Grafana/Alertmanager/Loki/cAdvisor/node-exporter 全家桶。
 > 路径 A（推荐）：直接用 kube-prometheus-stack Helm chart。
 > 路径 B：用本目录下配置文件手搭（适合讲原理）。

@@ -1,4 +1,6 @@
 # Prometheus 全局配置 + 抓取任务
+# ⚠️ 仅作参考（未生效）：当前环境由 kube-prometheus-stack（Helm + Operator）托管，
+#    抓取目标通过 ServiceMonitor 声明、规则通过 PrometheusRule 声明，本文件不参与运行。
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

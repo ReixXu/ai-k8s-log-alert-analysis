@@ -23,19 +23,23 @@ spec:
             summary: "ai-svc Pod 频繁重启"
             description: "ai-svc 在最近 15 分钟内重启超过 2 次"
 
-        # 2. ai-svc 错误率升高（5xx 比例 > 5%）
+        # 2. ai-svc 错误率升高（5xx 占比 > 5%）
+        # 依赖 ai_svc_requests_total 的 status 标签（ai-svc 于 2026-09 加入该标签；
+        # 无该标签时无法算出错误率，只能写成恒真的无效表达式）
+        # 说明：clamp_min 取 0.001 而非 1——错误率是 0~1 的比值，分母下限过大会把比率压平
         - alert: AiSvcErrorRateHigh
           expr: |
-            sum(rate(ai_svc_requests_total{endpoint="/v1/infer"}[5m]))
-            / clamp_min(sum(rate(ai_svc_requests_total{endpoint="/v1/infer"}[5m])), 1)
-            > 0
+            sum(rate(ai_svc_requests_total{endpoint="/v1/infer", status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(ai_svc_requests_total{endpoint="/v1/infer"}[5m])), 0.001)
+            > 0.05
           for: 5m
           labels:
             severity: warning
             service: ai-svc
           annotations:
-            summary: "ai-svc 请求异常"
-            description: "ai-svc 请求量在 5 分钟内异常升高，可能有流量突增或故障"
+            summary: "ai-svc 错误率超过 5%"
+            description: "ai-svc 推理接口 5xx 占比超过 5%，持续 5 分钟"
 
         # 3. ai-svc P99 延迟过高（> 1s）
         - alert: AiSvcP99LatencyHigh

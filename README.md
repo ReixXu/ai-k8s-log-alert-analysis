@@ -138,6 +138,7 @@ Loki（日志）← Promtail ← /var/log/pods/*
 - `2026-09-12`：**支持集群级/非业务告警分析**：`context.py` 按告警类型自动分流上下文（节点类/控制平面类/业务类）；`main.py` 识别 `cluster-wide` 告警并要求 AI 给出层级判断（基础设施/编排/应用）
 - `2026-09-12`：**修复推理模型空返回问题**：定位到 `deepseek-v4-flash` 的思考过程（reasoning_content）消耗 token 导致 `content` 为空；`llm.py` 将 max_tokens 提升至 4000（支持 `LLM_MAX_TOKENS` 调整）、增加 reasoning_content 回退与调用诊断日志
 - `2026-09-12`：etcd 集群级告警分析验证通过（AI 正确识别「单节点 etcd 集群触发 HA 阈值告警」并给出 etcdctl 排查命令）
+- `2026-09-13`：**修复告警规则与可靠性缺陷**：① `AiSvcErrorRateHigh` 原表达式分子分母相同、恒为真（无效规则），改为给 `ai_svc_requests_total` 加 `status` 标签后按 5xx 占比判定；② 修复失败分支重复计数；③ RAG 中文分词失效（连续中文被当成一个 token，实测 0 命中）改为「英文按词 + 中文 2-gram」；④ LLM 调用补显式超时；⑤ `/api/alert` 改为后台异步处理，避免 Alertmanager 10s 超时导致投递失败；⑥ 补 `livenessProbe`；⑦ 新增告警兜底通道方案文档
 
 ---
 
@@ -220,6 +221,7 @@ ai-cloud-native-ops/
 | **完整部署步骤（从环境到闭环）** | [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) |
 | **配置管理（告警规则/通知媒介/LLM Key）** | [`docs/CONFIGURATION_GUIDE.md`](docs/CONFIGURATION_GUIDE.md) |
 | **告警规则扩展指南** | [`docs/ALERT_RULES_GUIDE.md`](docs/ALERT_RULES_GUIDE.md) |
+| **告警兜底通道（避免 AI 挂掉导致告警静默）** | [`docs/ALERT_FALLBACK.md`](docs/ALERT_FALLBACK.md) |
 | **告警效果图（钉钉/企微/邮箱实测）** | [`docs/ALERT_SCREENSHOTS.md`](docs/ALERT_SCREENSHOTS.md) |
 | 四阶段路线总览 | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
 | 架构与数据流 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
