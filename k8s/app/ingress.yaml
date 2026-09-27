@@ -1,5 +1,6 @@
 # Ingress: 统一入口暴露 ai-svc（需先部署 Ingress-NGINX controller）
-# 访问方式：本机 hosts 添加 192.168.243.202 ai.ops.local，浏览器访问 http://ai.ops.local
+# 访问方式：本机 hosts 添加 192.168.243.201 ai.ops.local，浏览器访问 http://ai.ops.local
+# 说明：.201 是 Ingress-NGINX 的 LoadBalancer IP（.202 是 Grafana）
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

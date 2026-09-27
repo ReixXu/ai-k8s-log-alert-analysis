@@ -109,8 +109,12 @@ spec:
             - name: varlog
               mountPath: /var/log
               readOnly: true
-            - name: varlibdockercontainers
-              mountPath: /var/lib/docker/containers
+            # ⚠️ 关键：必须挂载容器日志软链的「真实目标目录」，否则 /var/log/pods 下
+            # 的软链会断裂、采集全部 stat failed。本机 docker data-root 为 /data/docker，
+            # 因此这里挂 /data/docker/containers；若你的环境是默认路径请改为
+            # /var/lib/docker/containers（用 `docker info | grep "Docker Root Dir"` 确认）
+            - name: dockerdata
+              mountPath: /data/docker/containers
               readOnly: true
             - name: podlogs
               mountPath: /var/log/pods
@@ -131,9 +135,9 @@ spec:
         - name: varlog
           hostPath:
             path: /var/log
-        - name: varlibdockercontainers
+        - name: dockerdata
           hostPath:
-            path: /var/lib/docker/containers
+            path: /data/docker/containers
         - name: podlogs
           hostPath:
             path: /var/log/pods

@@ -3,6 +3,10 @@
 .vscode/
 *.iml
 
+# 本机 agent 记忆（勿提交：内含本机路径与协作约定）
+AGENTS.local.md
+CLAUDE.local.md
+
 # Python
 __pycache__/
 *.pyc

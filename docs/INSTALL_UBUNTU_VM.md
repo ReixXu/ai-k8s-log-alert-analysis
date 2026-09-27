@@ -1,5 +1,9 @@
 # 在 VMware Workstation 创建 Linux 虚拟机（Ubuntu 22.04）
 
+> ⚠️ **本文为「从零搭虚拟机环境」的备选路径参考**，网段（`192.168.31.x`）为通用示例，
+> **与当前实际环境无关**。当前项目直接部署在已有的 Rocky Linux 10.2 三节点集群上
+> （网段 `192.168.243.0/24`），请以 [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) 为准。
+
 > 目标：创建 3 台可互通的 Ubuntu VM：master / worker1 / worker2。
 > 后续所有 K8s 与 AIOps 操作都在这些 VM 上进行。
 

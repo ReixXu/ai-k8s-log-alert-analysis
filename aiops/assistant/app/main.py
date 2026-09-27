@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 
 from .llm import LLMClient
@@ -47,8 +47,13 @@ async def healthz():
 
 
 @app.post("/api/alert")
-async def on_alert(payload: AlertPayload, request: Request):
-    """Alertmanager 告警 webhook 入口 → 触发 AI 根因分析。"""
+async def on_alert(payload: AlertPayload, background_tasks: BackgroundTasks):
+    """Alertmanager 告警 webhook 入口 → 触发 AI 根因分析。
+
+    重要：LLM 分析耗时数十秒，而 Alertmanager 的 webhook 默认只等 10s。
+    因此本接口**立即返回 200**，把耗时的采集+分析+通知放到后台任务，
+    避免 Alertmanager 判定投递失败而反复重投。
+    """
     uid = os.urandom(4).hex()
     alerts = payload.alerts or []
     # 注意：Alertmanager webhook 的 status 在顶层(payload.status)，
@@ -76,21 +81,31 @@ async def on_alert(payload: AlertPayload, request: Request):
     alert = alerts[0]
     labels = alert.get("labels") or {}
     alert_name = labels.get("alertname", "unknown")
-    # 告警可能没有 namespace 标签（集群级/节点级告警），此时用空值让 AI 知道是集群范围
+    # 告警可能没有 namespace 标签（集群级/节点级告警），此时标记为集群范围
     namespace = labels.get("namespace", "cluster-wide")
     annotations = alert.get("annotations") or {}
     summary = annotations.get("summary", alert_name)
     severity = labels.get("severity", "unknown")
 
-    # 1) 收集上下文（指标 + 日志 + 集群状态，按告警类型自动选择）
-    snapshot = ctx.collect_for_alert(namespace=namespace, alert_name=alert_name)
-    # 2) 组装 prompt（同时兼容业务告警与集群级/节点级告警）
-    scope_hint = (
-        "该告警为集群级/节点级告警（无特定命名空间），请结合节点状态、控制平面组件与全集群异常 Pod 分析。"
-        if namespace == "cluster-wide"
-        else f"该告警属于命名空间 {namespace} 的业务服务。"
+    # 耗时的分析链放后台执行，接口立即返回（避免 Alertmanager 10s 超时）
+    background_tasks.add_task(
+        analyze_and_notify, uid, alert_name, namespace, summary, severity
     )
-    user_prompt = f"""请作为资深 SRE 分析这个 K8s 告警。
+    return {"uid": uid, "alert": alert_name, "action": "analysis-queued"}
+
+
+def analyze_and_notify(uid: str, alert_name: str, namespace: str, summary: str, severity: str):
+    """后台任务：采集上下文 → LLM 分析 → 多渠道通知。"""
+    try:
+        # 1) 收集上下文（指标 + 日志 + 集群状态，按告警类型自动选择）
+        snapshot = ctx.collect_for_alert(namespace=namespace, alert_name=alert_name)
+        # 2) 组装 prompt（同时兼容业务告警与集群级/节点级告警）
+        scope_hint = (
+            "该告警为集群级/节点级告警（无特定命名空间），请结合节点状态、控制平面组件与全集群异常 Pod 分析。"
+            if namespace == "cluster-wide"
+            else f"该告警属于命名空间 {namespace} 的业务服务。"
+        )
+        user_prompt = f"""请作为资深 SRE 分析这个 K8s 告警。
 告警名: {alert_name}
 告警摘要: {summary}
 严重级别: {severity}
@@ -100,29 +115,25 @@ async def on_alert(payload: AlertPayload, request: Request):
 {snapshot[:4000]}
 
 请给出: 1)最可能的根因（说明判断在基础设施层/容器编排层/应用层） 2)处置步骤（含具体 kubectl 命令） 3)如何验证恢复。回答要具体、可执行、控制在300字内。"""
-    diagnosis = llm.ask(user_prompt)
+        diagnosis = llm.ask(user_prompt)
 
-    # 3) 打印完整分析结果到日志（kubectl logs 可查看，方便人工/演示）
-    print(f"\n===== AIOps ALERT ANALYSIS [{uid}] =====", flush=True)
-    print(f"alert: {alert_name}", flush=True)
-    print(f"namespace: {namespace}", flush=True)
-    print(f"summary: {summary}", flush=True)
-    print(f"--- diagnosis ---\n{diagnosis}", flush=True)
-    print("===== END ANALYSIS =====", flush=True)
+        # 3) 打印完整分析结果到日志（kubectl logs 可查看，方便人工/演示）
+        print(f"\n===== AIOps ALERT ANALYSIS [{uid}] =====", flush=True)
+        print(f"alert: {alert_name}", flush=True)
+        print(f"namespace: {namespace}", flush=True)
+        print(f"summary: {summary}", flush=True)
+        print(f"--- diagnosis ---\n{diagnosis}", flush=True)
+        print("===== END ANALYSIS =====", flush=True)
 
-    # 4) 多渠道通知（钉钉/企业微信/邮件，未配置的自动跳过）
-    try:
-        from .notify import notify_all
-        notify_all(alert_name, summary, diagnosis)
+        # 4) 多渠道通知（钉钉/企业微信/邮件，未配置的自动跳过）
+        try:
+            from .notify import notify_all
+            notify_all(alert_name, summary, diagnosis)
+        except Exception as e:  # noqa
+            print(f"[notify] 通知发送异常: {e}", flush=True)
     except Exception as e:  # noqa
-        print(f"[notify] 通知发送异常: {e}", flush=True)
-
-    return {
-        "uid": uid,
-        "alert": alert_name,
-        "diagnosis": diagnosis,
-        "collected": True,
-    }
+        # 后台任务必须兜住所有异常，否则会静默丢分析
+        print(f"[analysis] 后台分析异常 uid={uid}: {e}", flush=True)
 
 
 @app.post("/api/analyze-log")

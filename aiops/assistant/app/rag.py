@@ -27,7 +27,20 @@ def _load_docs():
 
 
 def _tokenize(text: str) -> Counter:
-    return Counter(re.findall(r"[\w\u4e00-\u9fa5]+", text.lower()))
+    """分词：英文/数字按词切分，中文切 2-gram（重叠）。
+
+    注意：不能用 r"[\\w\\u4e00-\\u9fa5]+" 直接匹配——那样会把整段连续中文当成
+    一个 token，导致中文提问与知识库段落几乎不可能有交集，检索恒为空。
+    """
+    text = text.lower()
+    tokens = re.findall(r"[a-z0-9]+", text)
+    for seg in re.findall(r"[\u4e00-\u9fa5]+", text):
+        if len(seg) == 1:
+            tokens.append(seg)
+        else:
+            # 2-gram 重叠切分：「节点不可用」→ 节点/点不/不可/可用
+            tokens.extend(seg[i:i + 2] for i in range(len(seg) - 1))
+    return Counter(tokens)
 
 
 def rag_search(query: str, top_k: int = 3) -> list:

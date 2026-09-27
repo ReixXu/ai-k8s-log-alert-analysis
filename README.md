@@ -1,23 +1,56 @@
 # AI 智能分析 K8s 集群服务日志和告警
 # AI-Powered Log & Alert Analysis for K8s Services
 
-> 一个把「云原生运维」与「AI」融合的端到端实操项目。
-> 基于已有 3 节点 Kubernetes 集群 + Harbor 私有仓库，从零部署完整的
-> **AI 推理业务 + 可观测平台 + AIOps 智能运维助手**。
+> 基于 3 节点 Kubernetes 集群 + Harbor 私有仓库，从零搭建的
+> **日志采集 → 指标监控 → 告警 → AI 辅助分析 → 多渠道通知** 完整链路实操项目。
+
+---
+
+## 📸 效果展示
+
+**故障注入后，钉钉 / 企业微信 / 邮箱会同时收到「告警内容 + AI 根因分析」；故障恢复时收到「已恢复」通知。**
+
+| 钉钉 | 企业微信 | 邮箱 |
+|------|---------|------|
+| ![钉钉](docs/images/alert-dingtalk.png) | ![企业微信](docs/images/alert-wecom.png) | ![邮箱](docs/images/alert-email.png) |
+
+> 截图内容（AI 自动生成的分析）：
+> 1. **根因**：ai-svc Deployment 被缩容至 0 副本（事件显示先缩到 0、25 分钟前扩到 2、2 分钟前又删除全部 Pod），导致无 Pod 暴露 /metrics，Prometheus 抓取目标消失。**无证据表明节点或底层故障。**
+> 2. **处置**：`kubectl -n app get deploy ai-svc -o yaml | grep replicas` 确认副本数与触发源；`kubectl -n app scale deploy ai-svc --replicas=2` 恢复；检查 Pod 是否 Running/Ready。
+> 3. **验证**：Pod 2/2 Running、Endpoints 有 Pod IP、/metrics 返回 200、告警自动解除。
+
+**完整链路**：
+
+```
+故障注入 → Prometheus 规则触发 → Alertmanager 路由 → AIOps 助手
+   ├─ 从 Prometheus 取指标（定位异常范围）
+   ├─ 从 Loki 取故障时间窗日志（确认应用侧表现）
+   └─ 用 kubectl 读 Pod 状态与事件（还原操作时序）
+        ↓
+   交大模型分析 → 钉钉 / 企业微信 / 邮箱（告警 + 根因 + 处置建议）
+        ↓
+   故障恢复 → resolved 通知（✅ 已恢复）
+```
 
 ---
 
 ## 📌 一、项目技术亮点
 
-- **云原生**：多节点 K8s 集群、容器化、存储方案（NFS 动态供给）、Ingress/LoadBalancer、监控告警、CI/CD。
-- **AI 基建**：在 K8s 上部署/运维模型推理服务（vLLM/模拟）、AI 业务 API。
-- **AI 驱动运维**：用 LLM 做日志智能分析、告警根因定位、故障处置建议（RAG + 上下文采集，AIOps）。
-- **工程化**：私有 Harbor 镜像仓库、可观测三件套（Prometheus/Grafana/Loki）、CI/CD。
-- **可演示**：整条链路真实跑通，制造故障 → 告警 → AI 自动分析。
+- **云原生基建**：多节点 K8s 集群、NFS 动态存储供给、MetalLB 负载均衡、Ingress-NGINX 入口、Harbor 私有镜像仓库。
+- **可观测体系**：Prometheus 指标采集（node-exporter / kube-state-metrics / 业务自定义指标）、Loki + Promtail 日志采集、Grafana 可视化、Alertmanager 告警路由。
+- **告警工程**：PrometheusRule 规则设计（含 `absent()` 指标消失检测）、分组去重、分级路由、跨命名空间覆盖。
+- **AI 辅助分析**：LLM 根因分析（按告警类型自动采集上下文）、RAG 知识库问答、多渠道通知与恢复通知。
 
-## 🎯 二、业务场景（一句话）
+## 🎯 二、业务场景
 
-一个「智能运维服务」对外提供模型推理 API，同时用 AI 助手自动巡检、分析日志、定位告警根因。**运维对象本身就是 AI 服务**，且**运维手段也由 AI 驱动** —— 两端都靠 AI。
+以集群内的 AI 推理服务（`ai-svc`）为被监控对象，验证一条完整的运维闭环：**服务出问题时，告警能自动触发，AI 能基于真实集群数据给出一份初步的根因分析与处置建议，并推送到值班渠道**，减少人工从零排查的时间。
+
+> **关于 AI 部分的适用边界**（重要）：
+> 在告警体系成熟的团队里，日常告警都有对应的处置手册（runbook），单条告警并不需要 AI 解读。本项目把 AI 定位为**辅助分析**，它更适合两类场景：
+> 1. **告警风暴时的聚合降噪**——一次底层故障触发几十条关联告警，把告警与同时间窗的日志、事件压成一条根因结论；
+> 2. **规则覆盖不到的故障**——告警规则是人写的，只能覆盖想到的情况；新故障模式或跨服务级联问题，需要基于全量数据反推根因。
+>
+> 因此 **LLM 不参与「要不要告警」的判定**，只负责「已确定的告警如何解释与处置」；确定性、可复现的判定仍然交给规则与统计。能用规则消除的噪音，不必花 LLM 解释。
 
 ---
 
@@ -30,7 +63,7 @@
 | **指标 Metrics** | Prometheus（kube-prometheus-stack） | ClusterIP:9090 | ✅ 采集节点/容器/Pod/业务指标 |
 | **可视化** | Grafana | `http://192.168.243.202`（LoadBalancer） | ✅ 看板可访问 |
 | **日志 Logs** | Loki + Promtail（DaemonSet×3） | ClusterIP:3100 | ✅ `{namespace="app"}` 日志可查 |
-| **告警 Alerts** | Alertmanager + PrometheusRule | ClusterIP:9093 | ✅ 6 条规则 + 路由到 AIOps |
+| **告警 Alerts** | Alertmanager + PrometheusRule | ClusterIP:9093 | ✅ 告警规则 + 路由到 AIOps |
 
 **关键数据流**：
 ```
@@ -44,11 +77,14 @@ Loki（日志）← Promtail ← /var/log/pods/*
 告警规则触发 → Alertmanager → AIOps 助手（AI 分析）
 ```
 
+> 说明：**Prometheus 管指标（主动拉取），Promtail 管日志（推送）**，两者互不调用；
+> 告警只由 Prometheus 指标驱动，日志不参与告警判定，仅作为 AI 根因分析的上下文。
+
 ---
 
 ## ✅ 四、实施进度追踪（每完成一步同步更新）
 
-> 当前进度：**可观测层进行中** —— kube-prometheus-stack 已部署，业务指标采集已打通，下一步部署 Loki 日志 + 告警规则。
+> 当前进度：**全链路已完成** —— 存储、网络、业务、可观测、告警、AI 分析、多渠道通知均已验证通过，详见下方清单。
 
 | 阶段 | 步骤 | 状态 |
 |------|------|------|

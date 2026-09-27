@@ -21,9 +21,15 @@ from openai import OpenAI
 
 @lru_cache
 def _client() -> OpenAI:
+    # 必须显式设置超时：SDK 默认读超时在分钟级，而 Alertmanager 的 webhook
+    # 默认只等 10s，不设限会让调用长时间挂住且无法及时释放。
+    # 可用 LLM_TIMEOUT（秒）覆盖；重试对告警场景无益，设为 0 次。
+    timeout = float(os.getenv("LLM_TIMEOUT", "120") or "120")
     return OpenAI(
         api_key=os.getenv("LLM_API_KEY", "sk-local"),
         base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
+        timeout=timeout,
+        max_retries=0,
     )
 
 
