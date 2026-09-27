@@ -296,3 +296,31 @@ AIOps 助手的 `ContextCollector.collect_for_alert()` 会**按告警类型自�
 
 因此**任意命名空间的业务告警**（monitoring / ingress-nginx / kube-system 等）都能被正确分析，namespace 取自告警标签而非写死。
 
+### 7.5 路由参数的继承陷阱（实测踩过）
+
+**Alertmanager 的子路由会继承父路由的 `group_wait` / `group_interval` / `repeat_interval`**——不显式配置就用 root 的值。这带来两个实际后果：
+
+| 现象 | 根因 | 影响 |
+|------|------|------|
+| 同一告警重复触发时收不到通知 | 子路由未配 `repeat_interval`，继承了 root 的 `12h` | 演示/复测时「明明告警了却没收到消息」，容易误判成链路故障 |
+| 告警恢复很快时通知丢失 | 子路由未配 `group_wait`，继承 root 的 `30s`；告警在 30s 内 resolved，Alertmanager 取消本次通知 | 短时故障（如缩容秒级恢复）不发通知 |
+
+**修法**：给 AIOps 路由显式配置这三个参数：
+
+```yaml
+routes:
+  - receiver: aiops-webhook
+    matchers:
+      - severity = "critical"
+    continue: false            # critical 只走 AI 通道，避免与直投通道重复
+    group_by: [alertname, namespace]
+    group_wait: 10s            # ★ 显式：10s 即发，不等 root 的 30s
+    group_interval: 1m
+    repeat_interval: 30m       # ★ 显式：30 分钟可重发（默认继承 12h 太长）
+```
+
+> 排障提示：若「Prometheus 里告警是 firing，但 AIOps 没收到」，
+> 先用 `kubectl logs -n monitoring alertmanager-... | grep -iE "notify|AiSvcGone"` 确认
+> Alertmanager **是否触发过通知**——没有触发通常是去重（repeat_interval）或告警存活太短（group_wait），
+> 而不是 webhook 投递失败。
+
