@@ -283,6 +283,35 @@ kubectl delete pod -n monitoring alertmanager-kube-prom-kube-prometheus-alertman
 
 > ⚠️ 权衡：warning 全量接入会增加 LLM 调用量与延迟。生产可按需只放行关键告警（如 `KubePodCrashLooping|KubePodNotReady|KubeQuotaExceeded`）。
 
+### 7.3.1 关于 AlertmanagerConfig 与手改 Secret 的取舍（实测结论）
+
+`prometheus-operator` 会把**所有匹配的 `AlertmanagerConfig` CRD 内容注入**到最终配置中，并且**自动为每条路由追加 `namespace="<该 CRD 所在命名空间>"` 匹配条件**（用于多租户隔离）。
+
+这带来两个必须知道的结果：
+
+| 现象 | 说明 |
+|------|------|
+| 只建 `AlertmanagerConfig` 无法覆盖业务命名空间 | 它有 `namespace="monitoring"` 限制，`app` 命名空间的告警匹配不上 |
+| 只改 Secret + 保留 CRD → **重复通知** | operator 注入的 CRD 路由与手改路由并存，`monitoring` 命名空间的告警两条都匹配、URL 相同 → **AIOps 被调用两次** |
+
+**因此推荐做法**：**删除 `AlertmanagerConfig`，只保留 Secret 里的完整路由配置**——
+
+```bash
+kubectl delete alertmanagerconfig aiops-route -n monitoring
+```
+
+理由：
+- 配置来源单一，避免"两处配置叠加"造成的重复通知与排查困惑
+- 不受 CRD 的 namespace 自动注入限制，天然支持跨命名空间告警
+- 代价：`helm upgrade` 重建 Alertmanager 时 Secret 可能被重置，需重新应用（可把 `/tmp/am.yaml` 纳入版本管理规避）
+
+> 验证配置是否干净：
+> ```bash
+> kubectl exec -n monitoring alertmanager-kube-prom-kube-prometheus-alertmanager-0 -- \
+>   sh -c 'cat /etc/alertmanager/config_out/alertmanager.env.yaml' | sed -n '1,30p'
+> ```
+> **期望**：`routes` 里只有一条 `receiver: aiops-webhook`。
+
 ### 7.4 AI 如何适配不同类型的告警
 
 AIOps 助手的 `ContextCollector.collect_for_alert()` 会**按告警类型自动选择上下文**（无需为每条规则单独配置）：
