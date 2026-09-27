@@ -158,17 +158,79 @@ usage: completion_tokens=260, reasoning_tokens=216   ← 思考占 83%
 
 ---
 
+---
+
+## 案例三：非业务命名空间告警（验证通用性）
+
+为验证「本项目不只能分析 `ai-svc`」，模拟一条来自 **`monitoring` 命名空间**的告警：
+
+```bash
+curl -s -X POST http://<aiops-svc>/api/alert -H "Content-Type: application/json" \
+  -d '{"status":"firing","alerts":[{"labels":{"alertname":"KubePodCrashLooping",
+       "namespace":"monitoring","pod":"loki-xxx","severity":"critical"},
+       "annotations":{"summary":"Pod monitoring/loki 持续崩溃重启"}}]}'
+```
+
+**AI 输出**：
+
+> 1) **根因**：节点 CPU/内存正常，**基本排除基础设施层**。KubePodCrashLooping 是**编排层现象**；最可能为**应用层**：Loki OOMKilled（Exit 137，memory limit 过低/ingester 缓存大）或配置/存储错误（schema、S3/MinIO、PVC 权限/满）。先看上次退出码定位。
+>
+> 2) **处置**：
+> ```bash
+> kubectl -n monitoring get pod | grep loki
+> kubectl -n monitoring describe pod <loki-pod> | sed -n '/Last State/,/Events/p'
+> kubectl -n monitoring logs <loki-pod> --previous --tail=200
+> kubectl -n monitoring get pvc,cm,secret | grep loki
+> ```
+> 若 137：`kubectl -n monitoring edit sts/loki` 提高 memory limit、降缓存/并行；若配置/存储：修 ConfigMap/Secret/PVC 后 `kubectl -n monitoring rollout restart sts/loki`（Deployment 用 `deploy/loki`）。
+>
+> 3) **验证**：`kubectl -n monitoring get pod <loki-pod> -w`，Running/Ready，RESTARTS 不增。
+
+**分析亮点**：
+- 采集的是 **`monitoring` 命名空间**的上下文（证明 namespace 取自告警标签，而非写死 `app`）
+- 显式分层排除：先排除基础设施（节点指标正常）→ 判定为编排层现象 → 定位应用层
+- 用 **Exit 137 = OOMKilled** 做精准推断（符合 Loki ingester 内存占用的典型特征）
+- 命令区分 `sts/loki` 与 `deploy/loki`（识别对象类型）
+
+---
+
+## 案例四：改进后的完整闭环（最新一次实测）
+
+修复「指标缺 status 标签 / RAG 中文失效 / LLM 无超时 / 接口同步阻塞 / 无 livenessProbe」之后重新实测：
+
+**AI 输出（`AiSvcGone`）**：
+
+> 1) **根因**：容器编排层配置变更，`ai-svc` Deployment 被显式缩容到 0。**证据**：事件 `Scaled down ... from 2 to 0`，Deployment `0/0`，Pod 日志正常 graceful shutdown，节点 CPU/内存正常，**排除基础设施和应用崩溃**。指标消失因无 Pod/Endpoint 可抓取。
+>
+> 2) **处置**：
+> ```bash
+> kubectl -n app get deploy ai-svc -o yaml | grep -A2 replicas
+> kubectl -n app get hpa,scaledobject 2>/dev/null
+> kubectl -n app describe deploy ai-svc
+> kubectl -n app get events --sort-by=.lastTimestamp | tail -20
+> ```
+> 确认误缩容后恢复：`kubectl -n app scale deploy ai-svc --replicas=2`；
+> 若存在 HPA/KEDA 置 0：`kubectl -n app patch hpa ai-svc --type merge -p '{"spec":{"minReplicas":1}}'`
+>
+> 3) **验证**：`kubectl -n app get pod -l app=ai-svc -w`；`kubectl -n app get ep ai-svc ai-svc-lb`。Pod 应 `1/1 Running`，Endpoint 有地址；Prometheus `up{...ai-svc}==1`，`AiSvcGone` 恢复；持续观察 5–10 分钟。
+
+**证据链特点**：AI 同时引用了 **scaling 事件**（`Scaled down from 2 to 0`）和 **Pod 的 graceful shutdown 日志**，
+据此区分「人为缩容」与「进程崩溃」——这是判断层级的关键依据。
+
+---
+
 ## 本次测试验证的价值点
 
 | 验证项 | 结果 |
 |--------|------|
 | 故障注入（缩容）→ Prometheus 告警 | ✅ AiSvcGone firing |
 | Alertmanager 路由 → AIOps webhook | ✅ receivers: aiops-webhook |
-| AI 根因分析（读取真实集群事件）| ✅ 精准定位「人工缩容导致」，非故障 |
-| 处置建议（含 kubectl 命令）| ✅ 完整、可执行 |
+| AI 根因分析（读取真实集群事件）| ✅ 引用 `Scaled down` 事件 + graceful shutdown 日志，精准定位「人工缩容」 |
+| 处置建议（含 kubectl 命令）| ✅ 完整、可执行（含 HPA/KEDA 检查分支）|
 | 三渠道通知（钉钉/企微/邮件）| ✅ errcode:0 + 邮件已发送 |
 | 恢复通知（resolved）| ✅ 「✅ 告警已恢复」三渠道送达 |
-| 集群级告警分析（etcd 案例）| ✅ 正确识别层级与根因 |
-| 任意命名空间覆盖能力 | ✅ 上下文按告警的 namespace 标签动态采集 |
+| 集群级告警分析（etcd 案例）| ✅ 正确识别层级与根因（单节点触发 HA 阈值属误报）|
+| 任意命名空间覆盖能力 | ✅ 上下文按告警的 namespace 标签动态采集（monitoring 案例已证）|
+| 接口响应速度 | ✅ `/api/alert` 改为后台异步后 **0.014s** 返回（原先同步等待 LLM 数十秒）|
 
-> 📌 截图原图保存在个人设备中（手机翻看钉钉/企微/邮箱即可）。
+> 📌 README 顶部「效果展示」引用的截图位于 `docs/images/`（钉钉 / 企业微信 / 邮箱）。

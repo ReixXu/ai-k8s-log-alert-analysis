@@ -139,6 +139,9 @@ Loki（日志）← Promtail ← /var/log/pods/*
 - `2026-09-12`：**修复推理模型空返回问题**：定位到 `deepseek-v4-flash` 的思考过程（reasoning_content）消耗 token 导致 `content` 为空；`llm.py` 将 max_tokens 提升至 4000（支持 `LLM_MAX_TOKENS` 调整）、增加 reasoning_content 回退与调用诊断日志
 - `2026-09-12`：etcd 集群级告警分析验证通过（AI 正确识别「单节点 etcd 集群触发 HA 阈值告警」并给出 etcdctl 排查命令）
 - `2026-09-13`：**修复告警规则与可靠性缺陷**：① `AiSvcErrorRateHigh` 原表达式分子分母相同、恒为真（无效规则），改为给 `ai_svc_requests_total` 加 `status` 标签后按 5xx 占比判定；② 修复失败分支重复计数；③ RAG 中文分词失效（连续中文被当成一个 token，实测 0 命中）改为「英文按词 + 中文 2-gram」；④ LLM 调用补显式超时；⑤ `/api/alert` 改为后台异步处理，避免 Alertmanager 10s 超时导致投递失败；⑥ 补 `livenessProbe`；⑦ 新增告警兜底通道方案文档
+- `2026-09-27`：**修复后重新实测通过**：① 指标已带 `status` 标签、错误率规则变为真判定；② RAG 中文提问正常命中知识库（`sources` 非空）；③ `/api/alert` 异步化后 **0.014s** 返回；④ 端到端链路复测：AiSvcGone → AI 分析（引用 `Scaled down` 事件与 graceful shutdown 日志，区分人为缩容与崩溃）→ 三渠道通知 + 恢复通知全部送达
+- `2026-09-27`：**验证通用性**：模拟 `monitoring` 命名空间的 `KubePodCrashLooping` 告警，AI 正确采集该命名空间上下文并给出分层判断（另一案例见 `docs/ALERT_SCREENSHOTS.md`）
+- `2026-09-27`：**整理 Alertmanager 配置**：删除带来 namespace 限制且与手改路由重复的 `AlertmanagerConfig`，统一由 Secret 单一配置源承载；文档补充「路由参数继承陷阱」与「CRD 与手改配置的取舍」
 
 ---
 
