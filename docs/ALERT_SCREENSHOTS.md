@@ -6,6 +6,7 @@
 ---
 
 ## 图一：钉钉收到的告警 + 恢复通知
+<img width="692" height="1145" alt="659a40c7464e7febbf7710470ab3d67d" src="https://github.com/user-attachments/assets/5049a732-780f-4931-9eeb-9f9c10b30632" />
 
 **第一条消息（20:13）— 告警通知**
 
@@ -37,6 +38,7 @@
 ---
 
 ## 图二：企业微信收到的告警 + 恢复通知
+<img width="1080" height="3796" alt="7ce01755aef34cb0d10ba688f073688b" src="https://github.com/user-attachments/assets/6f33e550-89c5-4829-b666-bc7454783927" />
 
 **第一条消息（告警机器人）**
 
@@ -70,6 +72,7 @@
 ---
 
 ## 图三：QQ 邮箱收到的两封邮件
+<img width="1080" height="672" alt="8bde725a0d16d497e27bf65c1e0cc14f" src="https://github.com/user-attachments/assets/5fe14605-6e33-4089-9f46-4d5c390c0708" />
 
 **邮件 1（10 分钟前）— 告警邮件**
 
