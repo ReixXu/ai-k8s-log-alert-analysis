@@ -63,7 +63,8 @@ spec:
         - name: harbor-secret
       containers:
         - name: assistant
-          image: reix.harbor.cn/k8s-ai/aiops-assistant:latest
+          # v7：告警接口异步化 + LLM 显式超时 + RAG 中文分词修复
+          image: reix.harbor.cn/k8s-ai/aiops-assistant:v7
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

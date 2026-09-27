@@ -20,7 +20,8 @@ spec:
         - name: harbor-secret
       containers:
         - name: ai-svc
-          image: reix.harbor.cn/k8s-ai/ai-svc:v2
+          # v3：指标增加 status 标签（用于计算错误率）
+          image: reix.harbor.cn/k8s-ai/ai-svc:v3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
